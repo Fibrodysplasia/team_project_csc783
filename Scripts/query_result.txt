@@ -1,0 +1,70 @@
+  OBJECTID      Shape FOD_ID     FPA_ID SOURCE_SYSTEM_TYPE SOURCE_SYSTEM
+1        1 blob[60 B]      1 FS-1418826                FED   FS-FIRESTAT
+2        2 blob[60 B]      2 FS-1418827                FED   FS-FIRESTAT
+3        3 blob[60 B]      3 FS-1418835                FED   FS-FIRESTAT
+4        4 blob[60 B]      4 FS-1418845                FED   FS-FIRESTAT
+5        5 blob[60 B]      5 FS-1418847                FED   FS-FIRESTAT
+6        6 blob[60 B]      6 FS-1418849                FED   FS-FIRESTAT
+  NWCG_REPORTING_AGENCY NWCG_REPORTING_UNIT_ID NWCG_REPORTING_UNIT_NAME
+1                    FS                USCAPNF   Plumas National Forest
+2                    FS                USCAENF Eldorado National Forest
+3                    FS                USCAENF Eldorado National Forest
+4                    FS                USCAENF Eldorado National Forest
+5                    FS                USCAENF Eldorado National Forest
+6                    FS                USCAENF Eldorado National Forest
+  SOURCE_REPORTING_UNIT SOURCE_REPORTING_UNIT_NAME LOCAL_FIRE_REPORT_ID
+1                  0511     Plumas National Forest                    1
+2                  0503   Eldorado National Forest                   13
+3                  0503   Eldorado National Forest                   27
+4                  0503   Eldorado National Forest                   43
+5                  0503   Eldorado National Forest                   44
+6                  0503   Eldorado National Forest                   54
+  LOCAL_INCIDENT_ID FIRE_CODE FIRE_NAME ICS_209_PLUS_INCIDENT_JOIN_ID
+1            PNF-47      BJ8K  FOUNTAIN                          <NA>
+2                13      AAC0    PIGEON                          <NA>
+3               021      A32W     SLACK                          <NA>
+4                 6      <NA>      DEER                          <NA>
+5                 7      <NA>  STEVENOT                          <NA>
+6                 8      <NA>    HIDDEN                          <NA>
+  ICS_209_PLUS_COMPLEX_JOIN_ID MTBS_ID MTBS_FIRE_NAME COMPLEX_NAME
+1                         <NA>    <NA>           <NA>         <NA>
+2                         <NA>    <NA>           <NA>         <NA>
+3                         <NA>    <NA>           <NA>         <NA>
+4                         <NA>    <NA>           <NA>         <NA>
+5                         <NA>    <NA>           <NA>         <NA>
+6                         <NA>    <NA>           <NA>         <NA>
+  FIRE_YEAR DISCOVERY_DATE DISCOVERY_DOY DISCOVERY_TIME
+1      2005       2/2/2005            33           1300
+2      2004      5/12/2004           133           0845
+3      2004      5/31/2004           152           1921
+4      2004      6/28/2004           180           1600
+5      2004      6/28/2004           180           1600
+6      2004      6/30/2004           182           1800
+  NWCG_CAUSE_CLASSIFICATION                         NWCG_GENERAL_CAUSE
+1                     Human Power generation/transmission/distribution
+2                   Natural                                    Natural
+3                     Human                    Debris and open burning
+4                   Natural                                    Natural
+5                   Natural                                    Natural
+6                   Natural                                    Natural
+  NWCG_CAUSE_AGE_CATEGORY CONT_DATE CONT_DOY CONT_TIME FIRE_SIZE
+1                    <NA>  2/2/2005       33      1730      0.10
+2                    <NA> 5/12/2004      133      1530      0.25
+3                    <NA> 5/31/2004      152      2024      0.10
+4                    <NA>  7/3/2004      185      1400      0.10
+5                    <NA>  7/3/2004      185      1200      0.10
+6                    <NA>  7/1/2004      183      1600      0.10
+  FIRE_SIZE_CLASS LATITUDE LONGITUDE      OWNER_DESCR STATE COUNTY
+1               A 40.03694 -121.0058             USFS    CA     63
+2               A 38.93306 -120.4044             USFS    CA     61
+3               A 38.98417 -120.7356 STATE OR PRIVATE    CA     17
+4               A 38.55917 -119.9133             USFS    CA      3
+5               A 38.55917 -119.9331             USFS    CA      3
+6               A 38.63528 -120.1036             USFS    CA      5
+  FIPS_CODE        FIPS_NAME
+1     06063    Plumas County
+2     06061    Placer County
+3     06017 El Dorado County
+4     06003    Alpine County
+5     06003    Alpine County
+6     06005    Amador County
