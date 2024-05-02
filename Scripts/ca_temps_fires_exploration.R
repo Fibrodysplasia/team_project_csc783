@@ -10,7 +10,8 @@ list.of.packages <- c('ggplot2',
                       'mapproj',
                       'tigris',
                       'plotly',
-                      'scales')
+                      'scales',
+                      'zoo')
 
 new.packages <- list.of.packages[!(list.of.packages %in%
                                      installed.packages()[,"Package"])]
@@ -30,13 +31,39 @@ head(fires_df)
 # Load California temps (Base Period: 1901-2000)
 ca_temps_df <- as.data.frame(read.csv("Data/ca_temps_monthly.csv"))
 head(ca_temps_df)
+
+
+#-------------------------------------------------------------------------------
+# TODO
+# I broke the moving averages somehow when adding anomaly data. Need to fix
+#-------------------------------------------------------------------------------
+# Making data manipulations:
+
+# Calculate a moving average
+ca_temps_df$moving_avg <- rollmean(ca_temps_df$Anomaly, 
+                                   12, 
+                                   fill = NA,
+                                   align = "center")
+# Get month
+ca_temps_df$Month <- format(ca_temps_df$Date, "%m")
+# Get year
+ca_temps_df$Year <- format(ca_temps_df$Date, "%Y")
+
+
+head(ca_temps_df, 50)
 #-------------------------------------------------------------------------------
 # Anomalies over time
 
+# Convert these to the first day of the given month for accurate representation
+ca_temps_df$Date <- as.Date(paste0(substr(ca_temps_df$Date, 1, 4), "-", 
+                                   substr(ca_temps_df$Date, 5, 6), "-01"))
+head(ca_temps_df)
+
 ca_anomalies_lineplot<- ggplot(ca_temps_df, aes(x = Date, y = Anomaly)) +
-  geom_line(color = "#00BFC4") +  # Adding a custom color to the line
+  geom_line(color = "black") +  # Adding a custom color to the line
   geom_point(aes(color = Anomaly), size = 2, alpha = 0.6) +  # Adding points
-  scale_color_gradientn(colors = c("red", "yellow", "green")) +  # Color gradient for points
+  geom_line(aes(y = moving_avg), color = "darkred", size = 1.5) + # Moving Average
+  scale_color_gradientn(colors = c("blue", "yellow", "red")) +  # Color gradient for points
   labs(
     title = "Temperature Anomalies in California",
     subtitle = "Monthly anomalies relative to the 1901-2000 average",
@@ -46,9 +73,9 @@ ca_anomalies_lineplot<- ggplot(ca_temps_df, aes(x = Date, y = Anomaly)) +
   ) +
   theme_minimal() +  # Minimalist theme
   theme(
-    plot.background = element_rect(fill = "black", color = "black"),  # Set background to black
-    panel.background = element_rect(fill = "black", color = "black"),  # Match panel background
-    text = element_text(color = "white"),  # Change text color to white for visibility
+    plot.background = element_rect(fill = "grey", color = "grey"),  # Set background to black
+    panel.background = element_rect(fill = "grey", color = "grey"),  # Match panel background
+    text = element_text(color = "black"),  # Change text color to white for visibility
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "bottom",
     plot.title = element_text(face = "bold", size = 14),
@@ -67,13 +94,13 @@ ca_anomalies_plotly
 # Range Slider addition
 ca_anomalies_plotly <- layout(ca_anomalies_plotly,
                         xaxis = list(
+                          tickformat = "%Y-%m",
                           rangeslider = list(type = "date"),
                           rangeselector = list(
                             buttons = list(
                               list(count = 1, label = "1m", step = "month", stepmode = "backward"),
                               list(count = 6, label = "6m", step = "month", stepmode = "backward"),
                               list(count = 1, label = "1y", step = "year", stepmode = "backward"),
-                              list(count = 1, label = "YTD", step = "year", stepmode = "todate"),
                               list(step = "all")
                             )
                           )
@@ -82,6 +109,10 @@ ca_anomalies_plotly <- layout(ca_anomalies_plotly,
                           fixedrange = FALSE  # Allows zooming on the y-axis as well
                         ))
 ca_anomalies_plotly
+
+#-------------------------------------------------------------------------------
+
+
 #-------------------------------------------------------------------------------
 # Get the columns of interest and rename them
 fires <- fires_df %>%
@@ -103,12 +134,6 @@ fires <- fires_df %>%
          cause = NWCG_CAUSE_CLASSIFICATION)
 
 head(fires)
-
-state_total_acreage <- fires %>%
-  mutate(state <- tolower(state)) %>%
-  group_by(state) %>%
-  summarise(tot_acreage = sum(size))
-
 
 # stateR was not working and this was a faster fix than finding another library
 state_abbreviations <- c(
