@@ -24,16 +24,12 @@ if(length(new.packages)) {
 # Load all packages
 lapply(list.of.packages, library, character.only = TRUE)
 
-# Load fires_df.rds, generate it with sql_to_df.R in Scripts
-fires_df <- readRDS("../raw_data/fires_df.rds")
-head(fires_df)
-
-# Load California temps (Base Period: 1901-2000)
+# load the csv
 ca_temps_df <- as.data.frame(read.csv("Data/ca_temps_monthly.csv"))
 head(ca_temps_df)
 
 #-------------------------------------------------------------------------------
-# Making data manipulations:
+# Making data manipulations
 
 # Calculate moving averages
 ca_temps_df$temp_mv_avg <- rollmean(ca_temps_df$Value, 
@@ -54,9 +50,6 @@ ca_temps_df$year <- as.integer(ca_temps_df$year)
 ca_temps_df$month <- as.integer(ca_temps_df$month)
 str(ca_temps_df)
 
-# for plot
-overall_value_mean <- mean(monthly_temps$value, na.rm = TRUE)
-
 # create custom labels for ggplot (otherwise it's jumbled mess of text)
 # only label January of each year
 ca_temps_df$label <- ifelse(ca_temps_df$month == 1, as.character(ca_temps_df$year), "")
@@ -69,8 +62,7 @@ monthly_temps <- ca_temps_df %>%
     month, 
     year_month, 
     Value, 
-    Anomaly, 
-    anomaly_mv_avg, 
+    Anomaly,
     temp_mv_avg,
     label
   ) %>%
@@ -82,6 +74,9 @@ monthly_temps <- ca_temps_df %>%
 
 str(monthly_temps)
 head(monthly_temps, 15)
+
+# for plot
+overall_value_mean <- mean(monthly_temps$value, na.rm = TRUE)
 
 annual_temps <- monthly_temps %>%
   select(year, value, label) %>%
@@ -96,6 +91,10 @@ annual_temps <- annual_temps %>%
 
 str(annual_temps)
 head(annual_temps, 12)
+
+# Save the dataframes as rds files (they are combined in Scripts/ca_combined_data.R)
+saveRDS(monthly_temps, file = "Data/ca_monthly_temps.rds")
+saveRDS(annual_temps, file = "Data/ca_annual_temps.rds")
 
 #-------------------------------------------------------------------------------
 # Monthly Data
@@ -170,4 +169,5 @@ annual_barplot <- ggplot(annual_temps, aes(x = year, y = annual_mean, fill = ann
                                 "Mean for Period" = "darkblue"))
 
 print(annual_barplot)
-head(annual_temps, 15)
+
+#-------------------------------------------------------------------------------
