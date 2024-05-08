@@ -12,7 +12,9 @@ list.of.packages <- c('ggplot2',
                       'plotly',
                       'scales',
                       'zoo',
-                      'corrplot')
+                      'corrplot',
+                      'knitr',
+                      'kableExtra')
 
 new.packages <- list.of.packages[!(list.of.packages %in%
                                      installed.packages()[,"Package"])]
@@ -120,7 +122,7 @@ fires_pre_cor <- ca_combined_data %>%
   rename(annual_fires = number_of_fires,
          annual_temp = temp_annual_mean,
          annual_acreage_burned = mean_acreage_burned,
-         perent_human_caused = pct_human)
+         percent_human_caused = pct_human)
 
 fires_cor <- cor(fires_pre_cor)
 corrplot(fires_cor, method = "number")
@@ -141,4 +143,20 @@ corrplot(fires_cor,
          tl.srt=45,
          diag=F)
 
-cor.test(fires_pre_cor$annual_temp, fires_pre_cor$annual_acreage_burned)
+cor_test_result <- cor.test(fires_pre_cor$annual_temp, fires_pre_cor$annual_acreage_burned)
+
+cor_test_df <- data.frame(
+  Estimate = cor_test_result$estimate,
+  Statistic = cor_test_result$statistic,
+  DF = cor_test_result$parameter,
+  P.value = cor_test_result$p.value,
+  Confidence.Interval = paste(round(cor_test_result$conf.int[1], 3), "to", round(cor_test_result$conf.int[2], 3))
+)
+
+# Use kable() for table
+table_output <- kable(cor_test_df, format = "html", caption = "Temp & Acreage Correlation") %>%
+  kable_styling(full_width = FALSE, position = "left", bootstrap_options = c("striped", "hover", "condensed", "bordered")) %>%
+  column_spec(1, bold = TRUE, border_right = TRUE) %>%
+  row_spec(0, bold = TRUE, color = "black", background = "lightgrey")
+
+table_output
