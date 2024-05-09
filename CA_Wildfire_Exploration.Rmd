@@ -1,0 +1,652 @@
+---
+title: "CA_Wildfire_Exploration"
+author: 
+  - "William McDonough"
+  - "AnnaMarie Y. Ho"
+  - "Amira Cerimi"
+date: "2024-05-07"
+output:
+  html_document: default
+---
+
+# Introduction
+
+ By leveraging   the   comprehensive   wildfire   occurrence dataset from the 
+ U.S. Department of Agriculture, this study seeks to uncover spatial hotspots 
+ and temporal trends   in   California   and   investigate   potential
+ correlations with temperature anomalies. Wildfires present significant economic
+ and environmental challenges, with annual costs in the United States estimated 
+ between 394 billion and 893 billion USD [1]. Given time-constraints, we limited
+ our study to California after realizing the acreage burned there was very high
+ compared to other states.
+ 
+
+# Data and Transformations
+
+[2] [2.3 Million US Wildfires (1992-2020) 6th Edition](https://www.kaggle.com/datasets/behroozsohrabi/us-wildfire-records-6th-edition)
+
+```
+Metadata (only including the data we used):
+
+FIRE_YEAR Calendar year in which the fire was discovered or confirmed to exist.
+
+DISCOVERY_DATE Date on which the fire was discovered or confirmed to exist.
+
+DISCOVERY_DOY Day of year on which the fire was discovered or confirmed to exist.
+
+DISCOVERY_TIME Time of day that the fire was discovered or confirmed to exist.
+
+CONT_DATE Date on which the fire was declared contained or otherwise controlled (mm/dd/yyyy where mm=month, dd=day, and yyyy=year).
+
+CONT_DOY Day of year on which the fire was declared contained or otherwise controlled.
+
+CONT_TIME Time of day that the fire was declared contained or otherwise controlled (hhmm where hh=hour, mm=minutes).
+
+FIRE_SIZE The estimate of acres within the final perimeter of the fire.
+
+FIRE_SIZE_CLASS Code for fire size based on the number of acres within the final fire perimeter (A=greater than 0 but less than or equal to 0.25 acres, B=0.26-9.9 acres, C=10.0-99.9 acres, D=100-299 acres, E=300 to 999 acres, F=1000 to 4999 acres, and G=5000+ acres).
+
+LATITUDE Latitude (NAD83) for point location of the fire (decimal degrees).
+
+LONGITUDE Longitude (NAD83) for point location of the fire (decimal degrees).
+
+STATE Two-letter alphabetic code for the state in which the fire burned (or originated), based on the nominal designation in the fire report (not from a spatial overlay).
+
+COUNTY County, or equivalent, in which the fire burned (or originated), based on nominal designation in the fire report (not from a spatial overlay).
+```
+
+[3] [Climate at a Glance](https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/statewide/time-series)
+```
+Metadata:
+Date year and month formatted YYYYMM
+
+Value average temperature in degrees farenheit
+
+Anomaly difference in average and baseline (1901-2000 base period)
+```
+
+
+## Libraries
+``` {r libraries_installation, message=FALSE, warning=FALSE, results='hide'}
+# R packages
+list.of.packages <- c('ggplot2', 
+                      'dplyr', 
+                      'ggiraphExtra', 
+                      'sf', 
+                      'maps', 
+                      'mapproj',
+                      'tigris',
+                      'plotly',
+                      'scales',
+                      'zoo',
+                      'corrplot',
+                      'knitr',
+                      'kableExtra',
+                      'htmltools')
+
+new.packages <- list.of.packages[!(list.of.packages %in%
+                                     installed.packages()[,"Package"])]
+
+if(length(new.packages)) {
+  install.packages(new.packages, repo='http://cran.at.r-project.org',
+                   dependencies=TRUE)
+}
+
+# Load all packages
+lapply(list.of.packages, library, character.only = TRUE)
+```
+
+
+## Data Transformations
+
+### Wildfire Data
+After downloading the wildfire database, we need to read it into R and take the
+`Fires` table
+
+```{r get_fire_data}
+# Install RSQLite if not already installed
+if (!requireNamespace("RSQLite", quietly = TRUE)) {
+  install.packages("RSQLite")
+}
+
+# Load the RSQLite package
+library(RSQLite)
+
+# Establish a connection to the SQLite database
+db <- dbConnect(RSQLite::SQLite(), dbname = "../raw_data/fires_db.sqlite")
+
+# Query the database, might take a second
+query_result <- dbGetQuery(db, "SELECT * FROM Fires")
+
+# The query_result is now a dataframe with the contents of 'Fires'
+head(query_result)  # Verify this output with query_result.txt in Scripts
+
+# Save the dataframe to disk as an R data file
+saveRDS(query_result, file = "Data/fires_df.rds")
+
+# Disconnect from the database
+dbDisconnect(db)
+
+# Get the columns of interest and rename them
+fires <- query_result %>%
+  select(FIRE_YEAR,
+         STATE,
+         COUNTY,
+         DISCOVERY_DOY,
+         CONT_DOY,
+         FIRE_SIZE_CLASS,
+         FIRE_SIZE,
+         NWCG_CAUSE_CLASSIFICATION) %>%
+  rename(year = FIRE_YEAR,
+         state = STATE,
+         county = COUNTY,
+         day_discovered = DISCOVERY_DOY,
+         day_contained = CONT_DOY,
+         class = FIRE_SIZE_CLASS,
+         size = FIRE_SIZE,
+         cause = NWCG_CAUSE_CLASSIFICATION)
+
+head(fires)
+```
+
+### Temperature Data
+After downloading the CA temperatures csv we want to load it into a df, calculate
+moving averages, and reformat dates for plotting. We are generating a df for both
+monthly and annual temperatures
+
+```{r get_temp_data}
+# Load California temps (Base Period: 1901-2000)
+ca_temps_df <- as.data.frame(read.csv("Data/ca_temps_monthly_raw.csv"))
+head(ca_temps_df)
+
+# Calculate moving averages
+ca_temps_df$anomaly_mv_avg <- rollmean(ca_temps_df$Anomaly, 
+                                   5, 
+                                   fill = NA,
+                                   align = "center")
+
+ca_temps_df$temp_mv_avg <- rollmean(ca_temps_df$Value, 
+                                       5, 
+                                       fill = NA,
+                                       align = "center")
+
+# Convert these to the first day of the given month for accurate representation
+ca_temps_df$Date <- as.Date(paste0(substr(ca_temps_df$Date, 1, 4), "-", 
+                                   substr(ca_temps_df$Date, 5, 6), "-01"))
+# Get month
+ca_temps_df$month <- format(ca_temps_df$Date, "%m")
+
+# Get year
+ca_temps_df$year <- format(ca_temps_df$Date, "%Y")
+
+# for some reason they are <chr>
+ca_temps_df$year <- as.integer(ca_temps_df$year)
+ca_temps_df$month <- as.integer(ca_temps_df$month)
+str(ca_temps_df)
+
+# GGplot needs custom labels or it just jumbles everything on the x axis
+ca_temps_df$label <- ifelse(ca_temps_df$month == 01, as.character(ca_temps_df$year), "")
+
+head(ca_temps_df, 13) # so you can see 2 labels
+
+# need a df for monthly and annual 
+ca_monthly_temps <- ca_temps_df %>%
+  mutate(
+    year_month = factor(paste(year, month, sep = "-"), levels = paste(year, month, sep = "-"))) %>%
+  select(
+    year, 
+    month, 
+    year_month, 
+    Value, 
+    Anomaly,
+    temp_mv_avg,
+    label) %>%
+  rename(
+    value = Value,
+    anomaly = Anomaly) %>%
+  arrange(year, month) 
+
+ca_annual_temps <- ca_monthly_temps %>%
+  select(year, value, label) %>%
+  group_by(year) %>%
+  summarise(annual_mean = mean(value, na.rm = TRUE),
+            label = first(label),
+            .groups = 'drop')
+
+# Calculate moving average (didn't work in summarise())
+ca_annual_temps <- ca_annual_temps %>%
+  mutate(moving_avg = rollmean(annual_mean, k = 5, fill = NA, align = 'center'))
+
+str(ca_annual_temps)
+head(ca_annual_temps)
+```
+### Combined Data
+Here we make simply combine the two datasets into a usable df and calculate some
+moving averages for plotting:
+```{r combined_data}
+ca_fires <- fires %>%
+  filter(state == "CA") %>%
+  group_by(year) %>%
+  summarise(number_of_fires = n()/100, # scaling for visual clarity
+            natural_tot = sum(cause == "Natural")/100, # divide by 100 to
+            human_tot = sum(cause == "Human")/100,    # match number_of_fires
+            mean_acreage_burned = mean(size),
+            pct_human = human_tot/number_of_fires*100)
+
+head(ca_fires)
+
+# join and get moving average
+ca_combined_data <- left_join(ca_annual_temps, ca_fires, by = "year")
+ca_combined_data <- ca_combined_data %>%
+  mutate(fires_moving_avg = rollmean(number_of_fires, k = 5, fill = NA, align = 'center'),
+         acres_moving_avg = rollmean(mean_acreage_burned, k = 5, fill = NA, align = 'center'),
+         human_moving_avg = rollmean(human_tot, k = 5, fill = NA, align = 'center'),
+         natural_moving_avg = rollmean(natural_tot, k = 5, fill = NA, align = 'center'),
+         temp_moving_avg = rollmean(annual_mean, k = 5, fill = NA, align = 'center')) %>%
+  rename(temp_annual_mean = annual_mean)
+
+head(ca_combined_data)
+```
+
+This was used to get states, because `stateR` was not working.
+```{r abbreviations}
+state_abbreviations <- c(
+  "Alabama" = "AL", "Alaska" = "AK", "Arizona" = "AZ", "Arkansas" = "AR", "California" = "CA",
+  "Colorado" = "CO", "Connecticut" = "CT", "Delaware" = "DE", "Florida" = "FL", "Georgia" = "GA",
+  "Hawaii" = "HI", "Idaho" = "ID", "Illinois" = "IL", "Indiana" = "IN", "Iowa" = "IA",
+  "Kansas" = "KS", "Kentucky" = "KY", "Louisiana" = "LA", "Maine" = "ME", "Maryland" = "MD",
+  "Massachusetts" = "MA", "Michigan" = "MI", "Minnesota" = "MN", "Mississippi" = "MS", "Missouri" = "MO",
+  "Montana" = "MT", "Nebraska" = "NE", "Nevada" = "NV", "New Hampshire" = "NH", "New Jersey" = "NJ",
+  "New Mexico" = "NM", "New York" = "NY", "North Carolina" = "NC", "North Dakota" = "ND",
+  "Ohio" = "OH", "Oklahoma" = "OK", "Oregon" = "OR", "Pennsylvania" = "PA", "Rhode Island" = "RI",
+  "South Carolina" = "SC", "South Dakota" = "SD", "Tennessee" = "TN", "Texas" = "TX",
+  "Utah" = "UT", "Vermont" = "VT", "Virginia" = "VA", "Washington" = "WA", "West Virginia" = "WV",
+  "Wisconsin" = "WI", "Wyoming" = "WY")
+```
+
+# Results
+
+### Heatmap, Acreage Burned by State
+Plotting the acreage burned by state illustrates why we chose CA for our first
+exploration. Note that AK and HI are removed as their scale throws off the map
+and eliminates any discernable differences in the continental states:
+```{r heatmap_fires_by_state, message=FALSE, warning=FALSE, results='hide'}
+# first get the acreage burned by state
+state_total_acreage <- fires %>%
+  mutate(state <- tolower(state)) %>%
+  group_by(state) %>%
+  summarise(tot_acreage = sum(size))
+
+# generate a map
+options(tigris_class = "sf")  # Ensure it returns sf objects
+# cb = TRUE gives us a low-res version for quicker plotting
+states_sf <- tigris::states(cb = TRUE)
+states_sf <- states_sf %>%
+  mutate(NAME = state_abbreviations[NAME])
+states_sf <- states_sf %>%
+  filter(!is.na(NAME))
+# ensure you have the same identifiers
+state_total_acreage$state <- trimws(state_total_acreage$state)
+print(unique(states_sf$NAME))
+print(unique(state_total_acreage$state))
+
+# Merge using the common 'state' abbreviation column
+choropleth_data <- merge(states_sf, 
+                         state_total_acreage, 
+                         by.x = "NAME", 
+                         by.y = "state", 
+                         all.x = TRUE)
+
+choropleth_data <- choropleth_data %>%
+  filter(!NAME %in% c("AK", "HI"))  # Exclude both Alaska and Hawaii due to scale
+```
+
+```{r plot_state_acreage}
+ggplot_map <- ggplot(data = choropleth_data) +
+  geom_sf(aes(fill = tot_acreage), 
+          color = "white", 
+          size = 0.1) +
+  scale_fill_gradient(low = "yellow", 
+                      high = "red", 
+                      name = "Total Burned Acreage",
+                      labels = scales::comma) +  # Adjust scale labels to standard numbering
+  labs(title = "Total Burned Acreage by State (excluding Alaska & Hawaii)",
+       subtitle = "Darker colors indicate more acreage burned. 1992-2020",
+       x = NULL, # Remove axis titles
+       y = NULL) +  # They are just coordinate labels
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),  # Remove X axis text
+        axis.text.y = element_blank(),  # Remove Y axis text
+        axis.ticks = element_blank(),   # Remove axis ticks
+        panel.grid.major = element_blank(),  # Remove major grid lines
+        panel.grid.minor = element_blank(),  # Remove minor grid lines
+        plot.background = element_blank()) +
+  coord_sf(xlim = c(-125, -66), 
+           ylim = c(24, 50), 
+           expand = FALSE)
+
+ggplot_map
+
+```
+### Linegraph, CA Temperature Anomalies
+
+When looking at the anomalies, we see an observed increase in temperature anomaly
+from around 2011. 
+```{r linegraph_temp_anomaly, message=FALSE, warning=FALSE}
+ca_anomalies_lineplot<- ggplot(ca_temps_df, aes(x = Date, y = Anomaly)) +
+  geom_line(color = "black") +  # Adding a custom color to the line
+  geom_point(aes(color = Anomaly), size = 2, alpha = 0.6) +  # Adding points
+  geom_line(aes(y = anomaly_mv_avg), color = "darkred", size = 1.25) + # Anomaly moving Average
+  scale_color_gradientn(colors = c("blue", "yellow", "red")) +  # Color gradient for points
+  labs(
+    title = "Temperature Anomalies in California",
+    subtitle = "Monthly anomalies relative to the 1901-2000 average",
+    x = "Year",
+    y = "Anomaly (°F)",
+    caption = "Data source: NOAA"
+  ) +
+  theme_minimal() +  # Minimalist theme
+  theme(
+    plot.background = element_rect(fill = "grey", color = "grey"),  # Set background to grey
+    panel.background = element_rect(fill = "grey", color = "grey"),  # Match panel background
+    text = element_text(color = "black"),  # Change text color to black for visibility
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold", size = 14),
+    axis.title = element_text(size = 12)
+  ) +
+  guides(color = guide_legend(title = "Temperature Anomaly"))
+
+ca_anomalies_lineplot
+```
+
+### Barplots, California Temperatures
+
+Here we plot monthly and annual temperatures to see any apparent trends:
+
+Monthly doesn't offer much insight:
+```{r barplot_monthly_temps, message=FALSE, warning=FALSE}
+# for plot
+overall_value_mean <- mean(ca_monthly_temps$value, na.rm = TRUE)
+
+monthly_barplot <- ggplot(ca_monthly_temps, aes(x = year_month, y = value, fill = value)) +
+  geom_col(width = 1) +  # width = 1 for no gaps
+  geom_line(aes(y = temp_mv_avg, group = 1, color = "Moving Average"), size = 1) +
+  geom_line(aes(y = overall_value_mean, group = 1, color = "Mean for Period"), size = 1) +
+  labs(title = "Monthly Average Temperatures",
+       subtitle = "California, 1992-2020",
+       x = "Year",
+       y = "Temperature (°F)",
+       color = "Legend") +
+  theme_minimal() +
+  theme(plot.background = element_rect(fill = "grey", color = "grey"),  # Set background to grey
+        panel.background = element_rect(fill = "grey", color = "grey"),  # Match panel background
+        text = element_text(color = "black"),  # Change text color to black for visibility
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        legend.position = "right",
+        plot.title = element_text(face = "bold", size = 14),
+        axis.title = element_text(size = 12)) + # Rotate x-axis labels for clarity
+  scale_x_discrete(labels = ca_monthly_temps$label) +
+  coord_cartesian(ylim = c(38, 80)) + 
+  scale_fill_gradient2(low = "yellow",
+                       mid = "orange",
+                       high = "red",
+                       midpoint = overall_value_mean,
+                       limits = c(min(ca_monthly_temps$value, na.rm = TRUE),
+                                  max(ca_monthly_temps$value, na.rm = TRUE)),
+                       name = "Temperature (°F)") +
+  scale_color_manual(values = c("Moving Average" = "darkred", 
+                                "Mean for Period" = "darkblue"))  
+
+print(monthly_barplot)
+```
+
+However, annually we see some interesting trends:
+```{r barplot_annual_temps, message=FALSE, warning=FALSE}
+annual_barplot <- ggplot(ca_annual_temps, aes(x = year, y = annual_mean, fill = annual_mean)) +
+  geom_col(width = 1) +
+  geom_line(aes(y = moving_avg, group = 1, color = "Moving Average"), size = 1) +
+  geom_line(aes(y = overall_value_mean, group = 1, color = "Mean for Period"), size = 1) +
+  labs(title = "Annual Average Temperatures",
+       subtitle = "California, 1992-2020",
+       x = "Year",
+       y = "Temperature (°F)",
+       color = "Legend") +
+  theme_minimal() +
+  theme(plot.background = element_rect(fill = "grey", color = "grey"),  # Set background to grey
+        panel.background = element_rect(fill = "grey", color = "grey"),  # Match panel background
+        text = element_text(color = "black"),  # Change text color to black for visibility
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        legend.position = "right",
+        plot.title = element_text(face = "bold", size = 14),
+        axis.title = element_text(size = 12)) +
+  coord_cartesian(ylim = c(55, 63)) + 
+  scale_fill_gradient2(low = "yellow",
+                       mid = "orange",
+                       high = "red",
+                       midpoint = overall_value_mean,
+                       limits = c(min(ca_annual_temps$annual_mean, na.rm = TRUE),
+                                  max(ca_annual_temps$annual_mean, na.rm = TRUE)),
+                       name = "Temperature (°F)") +
+  scale_color_manual(values = c("Moving Average" = "darkred", 
+                                "Mean for Period" = "darkblue"))
+
+print(annual_barplot)
+```
+
+It appears the temperature has been increasing from 2011 onward, coinciding with
+the observed increase in temperature anomaly. The question is now whether this 
+trend correlates to an increase in annual fires reported or annual acreage burned.
+
+### Bar and Line Plot, California Wildfires and Temperatures
+
+```{r bar_line_combined_data, message=FALSE, warning=FALSE}
+combined_barplot <- ggplot(ca_combined_data, aes(x = year, y = number_of_fires, fill = temp_annual_mean)) +
+  geom_col(width = 1) +
+  geom_line(aes(y = human_moving_avg, group = 1, color = "Human-Caused"), size = 1) +
+  geom_line(aes(y = natural_moving_avg, group = 1, color = "Natural-Caused"), size = 1) +
+  geom_line(aes(y = fires_moving_avg, group = 1, color = "Number of Fires"), size = 1) +
+  geom_line(aes(y = acres_moving_avg, group = 1, color = "Acreage"), size = 1) +
+  labs(title = "Annual Wildfires and Temperatures",
+       subtitle = "California, 1992-2020",
+       x = "Year",
+       y = "Number of Fires (in hundreds)",
+       color = "Moving Averages") +
+  theme_minimal() +
+  theme(plot.background = element_rect(fill = "grey", color = "grey"),
+        panel.background = element_rect(fill = "grey", color = "grey"),
+        text = element_text(color = "black"),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        legend.position = "right",
+        plot.title = element_text(face = "bold", size = 14),
+        axis.title = element_text(size = 12)) +
+  # coord_cartesian(ylim = c(45, 175)) +
+  scale_fill_gradient2(low = "yellow",
+                       mid = "orange",
+                       high = "red",
+                       midpoint = mean(ca_combined_data$temp_annual_mean, na.rm = TRUE),
+                       limits = c(min(ca_combined_data$temp_annual_mean, na.rm = TRUE),
+                                  max(ca_combined_data$temp_annual_mean, na.rm = TRUE)),
+                       name = "Mean Temperature (°F)") +
+  scale_color_manual(values = c("Number of Fires" = "darkblue",
+                                "Acreage" = "steelblue",
+                                "Human-Caused" = "darkred",
+                                "Natural-Caused" = "darkgreen")
+                     )
+
+print(combined_barplot)
+```
+Here we see an obvious sharp increase in the amount of acreage burned following 2010. 
+Also note the overall decrease and apparent leveling of the percentage of human-
+caused fires. 
+
+We have observed an apparent increase in temperature coinciding with a sharp increase
+in acres burned. Now we move on to statistical testing. How are these variables
+related and is that relationship statistically meaningful?
+
+### Statistics
+
+```{r corplot}
+# Correlation Testing
+
+fires_pre_cor <- ca_combined_data %>%
+  select(number_of_fires,
+         temp_annual_mean,
+         mean_acreage_burned,
+         pct_human) %>%
+  rename(annual_fires = number_of_fires,
+         annual_temp = temp_annual_mean,
+         annual_acreage_burned = mean_acreage_burned,
+         percent_human_caused = pct_human)
+
+fires_cor <- cor(fires_pre_cor)
+corrplot(fires_cor, method = "number")
+
+col <- colorRampPalette(c("#BB4444",
+                          "#EE9988",
+                          "#FFFFFF",
+                          "#77AADD",
+                          "#4477AA"))
+
+corrplot(fires_cor,
+         method="color",
+         col=col(200),
+         type="lower",
+         order="hclust",
+         addCoef.col="black",
+         tl.col="black",
+         tl.srt=45,
+         diag=F)
+
+cor_test_result <- cor.test(fires_pre_cor$annual_temp, fires_pre_cor$annual_acreage_burned)
+
+cor_test_df <- data.frame(
+  Estimate = cor_test_result$estimate,
+  Statistic = cor_test_result$statistic,
+  DF = cor_test_result$parameter,
+  P.value = cor_test_result$p.value,
+  Confidence.Interval = paste(round(cor_test_result$conf.int[1], 3), "to", round(cor_test_result$conf.int[2], 3))
+)
+
+# Use kable() for table
+table_output <- kable(cor_test_df, format = "html", caption = "Temp & Acreage Correlation") %>%
+  kable_styling(full_width = FALSE, position = "left", bootstrap_options = c("striped", "hover", "condensed", "bordered")) %>%
+  column_spec(1, bold = TRUE, border_right = TRUE) %>%
+  row_spec(0, bold = TRUE, color = "black", background = "lightgrey")
+
+table_output
+```
+Notes:
+annual fires is not meaningfully correlated to how many are human-caused. 
+annual temperature has a negative correlation with percent human-caused.
+annual acreage burned has a negative correlation with percent human-caused and 
+positive correlations with mean annual fires and mean annual temperature.
+
+Next we will explore how significant the acreage correlations are:
+```{r linear_regression}
+# Linear Regression acreage v year, temp, and pct human
+
+model <- lm(mean_acreage_burned ~ year + 
+              temp_annual_mean + 
+              pct_human, 
+            data = ca_combined_data)
+par(mfrow = c(2, 2))
+plot(model)
+summary(model)
+```
+Note point 29 (year 2020) seems to have a high residual and a high leverage, 
+indicating it is having substantial influence on the model. We can explore this
+further to decide if we should remove the point:
+```{r point_29_eval}
+# point 29 seems to be influencing the regression model a lot
+point_29 <- ca_combined_data[29, ]
+print(point_29)
+
+# Calculate leverage
+influence_measures <- influence.measures(model)
+print(influence_measures)
+
+hat_values <- hatvalues(model)
+print(hat_values[29]) # a measure of leverage (avg 0.276 for this data)
+
+# Cook's distance
+# This was returning NULL?
+# print(influence_measures$cooks.distance[29])
+
+# Manual Cook's
+n = length(residuals(model))
+p = length(coefficients(model))
+h_29 = hat_values[29]
+r_29 = residuals(model)[29]
+cooks_d_29 = (r_29^2 / (p * mean((residuals(model))^2))) * (h_29 / (1 - h_29)^2)
+print(cooks_d_29) # 1.29 means we can remove this (much higher than 4/n or 1)
+
+# DFBETAS - to see the influence on each coefficient
+# DFBETA is |2/sqrt(n)| so 2/sqrt(29) ~ 0.372
+print(dfbetas(model)[29, ]) # intercept 0.778, higher than 0.372
+```
+Given the cook's value of 1.29 and all DFBETAS being outside the range, we exclude
+point 29 for the model:
+```{r regression_without_29}
+# try without 29
+model_excl_29 <- lm(mean_acreage_burned ~ year + temp_annual_mean + pct_human, data = ca_combined_data[-29, ])
+summary(model_excl_29)
+```
+
+#### Key Points about the Statistics
+
+The intercept has a large negative value and is not statistically significant 
+(p > 0.05). The magnitude has decreased compared to the model with observation 
+29 included, suggesting that the exclusion of this outlier has a leveling effect 
+on the intercept
+
+year: The coefficient for year is slightly positive but remains statistically 
+insignificant. This suggests that there is not a clear trend over the years that 
+is consistent across the data, at least not one strong enough to be statistically
+significant without the outlier.
+
+temp_annual_mean: The coefficient here is statistically significant (p < 0.01) 
+and indicates a positive relationship. This suggests that temperature has a 
+meaningful and positive impact on mean acreage burned, which becomes more 
+pronounced without the outlier. This coefficient has become even more statistically
+significant than in the full model, suggesting a clearer effect of temperature
+on acreage burned without the distortion caused by the outlier.
+
+pct_human: This coefficient remains statistically insignificant and indicates a 
+minimal impact of the percentage of human-caused fires on the burned acreage in 
+this model setup. The effect size and significance level have not notably changed, 
+suggesting that the outlier did not heavily influence this relationship.
+
+F-statistic: Shows that the overall model is statistically significant with a 
+lower p-value than in the full model, suggesting that the model fits the data 
+better without the outlier.
+
+Adjusted R-squared: Increased significantly, reinforcing that the model explains 
+more variability in a way that is adjusted for the number of predictors used,
+which is more appropriate when comparing models with different numbers of predictors.
+
+Residual standard error: The RSE has decreased from 63.57 in the full model to 
+33.56 in this model, suggesting better prediction accuracy without the outlier.
+
+To summarise concisely, with or without the outlier point 29 we observe a strong 
+statistically significant positive correlation between the mean temperature in a year
+and the amount of acreage burned by wildfires in California.
+
+We do not, however, see a meaningful relationship with the percentage of human-caused
+fires and the acreage burned.
+
+# References
+--------------------------------------------------------------------------------
+[1] Joint Economic Committee Democrats. (2023, October). Climate-Exacerbated 
+Wildfires Cost the U.S. Between $394 to $893 Billion Each Year in Economic Costs
+and Damages. https://www.jec.senate.gov/public/index.cfm/democrats/2023/10/climate-
+exacerbated-wildfires-cost-the-u-s-between-394-to-893-billion-each-year-in-economic-
+costs-and-damages
+
+[2] Short, Karen C. 2022. Spatial wildfire occurrence data for the United States,   
+1992-2020 [FPA_FOD_20221014]. 6th Edition. Fort Collins, CO: Forest Service Research   
+Data Archive. https://doi.org/10.2737/RDS-2013-0009.6
+
+[3] NOAA National Centers for Environmental information, Climate at a  Glance:   
+Statewide Time Series, published May 2024. https://www.ncei.noaa.gov/access/monitoring/
+climate-at-a-glance/statewide/time-series   

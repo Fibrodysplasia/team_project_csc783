@@ -157,7 +157,7 @@ annual_barplot <- ggplot(annual_temps, aes(x = year, y = annual_mean, fill = ann
         plot.title = element_text(face = "bold", size = 14),
         axis.title = element_text(size = 12)) +
   scale_x_discrete(labels = annual_temps$label) +
-  coord_cartesian(ylim = c(55, 63), clip = "off") + 
+  coord_cartesian(ylim = c(55, 63)) + 
   scale_fill_gradient2(low = "yellow",
                        mid = "orange",
                        high = "red",
