@@ -160,3 +160,88 @@ table_output <- kable(cor_test_df, format = "html", caption = "Temp & Acreage Co
   row_spec(0, bold = TRUE, color = "black", background = "lightgrey")
 
 table_output
+
+#-------------------------------------------------------------------------------
+# Linear Regression acreage v year, temp, and pct human
+
+model <- lm(mean_acreage_burned ~ year + 
+              temp_annual_mean + 
+              pct_human, 
+            data = ca_combined_data)
+par(mfrow = c(2, 2))
+plot(model)
+summary(model)
+
+# point 29 seems to be influencing the regression model a lot
+point_29 <- ca_combined_data[29, ]
+print(point_29)
+
+#-------------------------------------------------------------------------------
+# year 2020 (point 29)
+# Calculate leverage
+influence_measures <- influence.measures(model)
+print(influence_measures)
+
+# there's a less verbose way of doing this I think
+hat_values <- hatvalues(model)
+print(hat_values[29]) # a measure of leverage (avg 0.276 for this data)
+
+# Cook's distance
+# This was returning NULL?
+# print(influence_measures$cooks.distance[29])
+
+# Manual Cook's
+n = length(residuals(model))
+p = length(coefficients(model))
+h_29 = hat_values[29]
+r_29 = residuals(model)[29]
+cooks_d_29 = (r_29^2 / (p * mean((residuals(model))^2))) * (h_29 / (1 - h_29)^2)
+print(cooks_d_29) # 1.29 means we can remove this (much higher than 4/n or 1)
+
+# DFBETAS - to see the influence on each coefficient
+# DFBETA is |2/sqrt(n)| so 2/sqrt(29) ~ 0.372
+print(dfbetas(model)[29, ]) # intercept 0.778, 
+
+# try without 29
+model_excl_29 <- lm(mean_acreage_burned ~ year + temp_annual_mean + pct_human, data = ca_combined_data[-29, ])
+summary(model_excl_29)
+
+# visualize again without 29 to see how trends are affected
+# (indiscernable differences)
+modified_data <- ca_combined_data[-29, ]
+new_combined_barplot <- ggplot(modified_data, aes(x = year, y = number_of_fires, fill = temp_annual_mean)) +
+  geom_col(width = 1) +
+  geom_line(aes(y = human_moving_avg, group = 1, color = "Human-Caused"), size = 1) +
+  geom_line(aes(y = natural_moving_avg, group = 1, color = "Natural-Caused"), size = 1) +
+  geom_line(aes(y = fires_moving_avg, group = 1, color = "Number of Fires"), size = 1) +
+  geom_line(aes(y = acres_moving_avg, group = 1, color = "Acreage"), size = 1) +
+  labs(title = "Annual Wildfires and Temperatures",
+       subtitle = "California, 1992-2019",
+       x = "Year",
+       y = "Number of Fires (in hundreds)",
+       color = "Moving Averages") +
+  theme_minimal() +
+  theme(plot.background = element_rect(fill = "grey", color = "grey"),
+        panel.background = element_rect(fill = "grey", color = "grey"),
+        text = element_text(color = "black"),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        legend.position = "right",
+        plot.title = element_text(face = "bold", size = 14),
+        axis.title = element_text(size = 12)) +
+  # coord_cartesian(ylim = c(45, 175)) +
+  scale_fill_gradient2(low = "yellow",
+                       mid = "orange",
+                       high = "red",
+                       midpoint = mean(modified_data$temp_annual_mean, na.rm = TRUE),
+                       limits = c(min(modified_data$temp_annual_mean, na.rm = TRUE),
+                                  max(modified_data$temp_annual_mean, na.rm = TRUE)),
+                       name = "Mean Temperature (°F)") +
+  scale_color_manual(values = c("Number of Fires" = "darkblue",
+                                "Acreage" = "steelblue",
+                                "Human-Caused" = "darkred",
+                                "Natural-Caused" = "darkgreen")
+  )
+
+print(new_combined_barplot)
+
+#-------------------------------------------------------------------------------
